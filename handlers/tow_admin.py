@@ -106,11 +106,40 @@ async def price_entered(message: Message, state: FSMContext):
             return
         truck_id = truck.id
 
+        cursor = await conn.execute(
+            "SELECT status, type FROM requests WHERE id = ?",
+            (request_id,)
+        )
+        req_row = await cursor.fetchone()
+        if not req_row or req_row[1] != "tow" or req_row[0] != "new":
+            await message.answer("Эта заявка уже закрыта/принята или не относится к эвакуатору.")
+            await state.clear()
+            return
+
         await conn.execute(
             "INSERT INTO tow_offers (request_id, tower_id, price, created_at) VALUES (?, ?, ?, ?)",
             (request_id, truck_id, price, datetime.now().isoformat())
         )
         await conn.commit()
+
+# 🔥 ВАЖНО — отправка клиенту
+cursor = await conn.execute(
+    "SELECT user_id FROM requests WHERE id = ?",
+    (request_id,)
+)
+row = await cursor.fetchone()
+
+if row and row[0]:
+    client_id = row[0]
+
+    await message.bot.send_message(
+        chat_id=client_id,
+        text=f"🚗 Новое предложение по вашей заявке #{request_id}\n\n💰 Цена: {price} тг"
+    )
+
+await update_tow_offers_message(message.bot, request_id)
+
+await message.answer("✅ Ваше предложение отправлено клиенту.")
 
     await update_tow_offers_message(message.bot, request_id)
 
